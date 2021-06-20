@@ -1,0 +1,50 @@
+substitutions:
+  _CD_REPO: go-nihao-cd
+
+steps:
+  - name: gcr.io/cloud_builders/docker
+    id: Build
+    args:
+      - build
+      - -t
+      - gcr.io/$PROJECT_ID/go-nihao:$COMMIT_SHA
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push
+    args:
+      - push
+      - gcr.io/$PROJECT_ID/go-nihao:$COMMIT_SHA
+ 
+  - name: gcr.io/cloud-builders/gcloud
+    id: Clone CD
+    entrypoint: /bin/sh
+    args:
+    - '-c'
+    - |
+      cd /workspace
+      gcloud source repos clone $_CD_REPO --project=$PROJECT_ID && \
+      cd $_CD_REPO && \
+      git config user.email $(gcloud auth list --filter=status:ACTIVE --format='value(account)')
+  - name: gcr.io/$PROJECT_ID/yq
+    id: Update chart
+    volumes:
+    args:
+    - yq
+    - write
+    - '-i'
+    - /workspace/$_CD_REPO/go-nihao-chart/values.yaml
+    - image.tag
+    - $COMMIT_SHA
+
+  - name: gcr.io/cloud-builders/gcloud
+    id: Push CD
+    entrypoint: /bin/sh
+    args:
+    - '-c'
+    - |
+      set -x && \
+      cd /workspace/$_CD_REPO && \
+      git add . && \
+      git commit -m "CI: ${COMMIT_SHA} Author: $(git log --format='%an <%ae>' -n 1 HEAD)" && \
+      git push
